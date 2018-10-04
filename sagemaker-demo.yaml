@@ -112,8 +112,77 @@ Resources:
       RoleArn: !GetAtt SageMakerIamRole.Arn
       LifecycleConfigName: !GetAtt MLWorkshopLifecycleConfig.NotebookInstanceLifecycleConfigName
 
+  TaxiDatabase:
+    Type: "AWS::Glue::Database"
+    Properties:
+      DatabaseInput:
+        Description: !Sub Database for SageMaker workshop
+        Name: !Join [ '_', [ !Ref NotebookPrefix, 'taxidb' ] ]
+      CatalogId: !Ref AWS::AccountId
+
+  YellowTable:
+    Type: "AWS::Glue::Table"
+    Properties:
+      TableInput: 
+        Name: yellow
+        StorageDescriptor:
+          Compressed: False
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat 
+          NumberOfBuckets: -1
+          OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+          StoredAsSubDirectories: False 
+          Location: s3://analytics-serverless-west/glue-blog/yellow
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+            Parameters: {'field.delim': ','}
+          Columns:
+          - Name: vendorid
+            Type: bigint
+          - Name: tpep_pickup_datetime
+            Type: string
+          - Name: tpep_dropoff_datetime
+            Type: string
+          - Name: passenger_count
+            Type: double
+          - Name: trip_distance
+            Type: double
+          - Name: pickup_longitude
+            Type: double
+          - Name: pickup_latitude
+            Type: double
+          - Name: ratecodeid
+            Type: bigint
+          - Name: store_and_fwd_flag
+            Type: string
+          - Name: dropoff_longitude
+            Type: double
+          - Name: dropoff_latitude
+            Type: double
+          - Name: payment_type
+            Type: bigint
+          - Name: fare_amount
+            Type: double
+          - Name: extra
+            Type: double
+          - Name: mta_tax
+            Type: double
+          - Name: tip_amount
+            Type: double
+          - Name: tolls_amount
+            Type: double
+          - Name: improvement_surcharge
+            Type: double
+          - Name: total_amount
+            Type: double
+        Parameters: {'classification': 'csv'} 
+      DatabaseName: !Ref TaxiDatabase
+      CatalogId: !Ref AWS::AccountId
+
 Outputs:
   SageMakerNotebookInstance:
     Value: !GetAtt SageMakerNotebookInstance.NotebookInstanceName
   IAMRole:
     Value: !GetAtt SageMakerIamRole.Arn
+
+  GlueDatabaseName:
+    Value: !Ref TaxiDatabase
