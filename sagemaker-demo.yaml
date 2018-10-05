@@ -82,6 +82,7 @@ Resources:
                   
                   find -name '*.ipynb' -exec sed -i 's/<<SageMakerS3Bucket>>/${S3Bucket}/g' {} +
                   find -name '*.ipynb' -exec sed -i 's/<<GlueDatabaseName>>/${TaxiDatabase}/g' {} +
+                  find -name '*.ipynb' -exec sed -i 's/<<Region>>/${AWS::Region}/g' {} +
                   EOF
       OnStart:
         - Content:
