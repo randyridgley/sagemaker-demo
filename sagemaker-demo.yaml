@@ -20,6 +20,8 @@ Parameters:
     Description: Prefix for the notebook instance
 
 Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
 
   SageMakerIamRole:
     Type: "AWS::IAM::Role"
@@ -186,3 +188,6 @@ Outputs:
 
   GlueDatabaseName:
     Value: !Ref TaxiDatabase
+
+  SageMakerS3Bucket:
+    Value: !Ref S3Bucket
