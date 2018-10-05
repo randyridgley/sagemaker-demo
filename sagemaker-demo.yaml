@@ -71,12 +71,18 @@ Resources:
       OnCreate:
         - Content:
             Fn::Base64: |
-              #!/bin/bash
-              set -e
-              sudo -i -u ec2-user bash << EOF
-              echo "Setup the Workshop exercises"
-              git clone https://github.com/randyridgley/sagemaker-demo.git ~/SageMaker/mlworkshop/
-              EOF
+                !Sub:
+                  #!/bin/bash
+                  set -e
+                  sudo -i -u ec2-user bash << EOF
+                  echo "Setup the Workshop exercises"
+                  git clone https://github.com/randyridgley/sagemaker-demo.git ~/SageMaker/mlworkshop/
+                  
+                  cd ~/SageMaker/mlworkshop
+                  
+                  find -name '*.ipynb' -exec sed -i 's/<<SageMakerS3Bucket>>/${S3Bucket}/g' {} +
+                  find -name '*.ipynb' -exec sed -i 's/<<GlueDatabaseName>>/${TaxiDatabase}/g' {} +
+                  EOF
       OnStart:
         - Content:
             Fn::Base64: |
