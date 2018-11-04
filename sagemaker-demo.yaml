@@ -83,6 +83,8 @@ Resources:
                   find -name '*.ipynb' -exec sed -i 's/<<SageMakerS3Bucket>>/${S3Bucket}/g' {} +
                   find -name '*.ipynb' -exec sed -i 's/<<GlueDatabaseName>>/${TaxiDatabase}/g' {} +
                   find -name '*.ipynb' -exec sed -i 's/<<Region>>/${AWS::Region}/g' {} +
+
+                  git clone https://github.com/mahendrabairagi/DeeplensWorkshop.git ~/SageMaker/deeplens/
                   EOF
       OnStart:
         - Content:
@@ -186,6 +188,123 @@ Resources:
         Parameters: {'classification': 'csv'} 
       DatabaseName: !Ref TaxiDatabase
       CatalogId: !Ref AWS::AccountId
+
+  CleanupFilesFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Lambda function to cleanup files
+      Handler: index.handler
+      Role: !GetAtt [LambdaExecutionRole, Arn]
+      Runtime: python2.7
+      Timeout: 60
+      Environment:
+        Variables:
+          destinationbucket : !Ref S3Bucket
+      Code:
+        ZipFile: |
+          import logging
+          import json
+          import zipfile
+          import os
+          import boto3
+          from botocore.exceptions import ClientError
+          from botocore.client import Config
+          from urllib2 import build_opener, HTTPHandler, Request
+          
+          LOGGER = logging.getLogger()
+          LOGGER.setLevel(logging.INFO)
+          
+          def send_response(event, context, response_status, response_data):
+              '''Send a resource manipulation status response to CloudFormation'''
+              response_body = json.dumps({
+                  "Status": response_status,
+                  "Reason": "See the details in CloudWatch Log Stream: " + context.log_stream_name,
+                  "PhysicalResourceId": context.log_stream_name,
+                  "StackId": event['StackId'],
+                  "RequestId": event['RequestId'],
+                  "LogicalResourceId": event['LogicalResourceId'],
+                  "Data": response_data
+              })
+          
+              LOGGER.info('ResponseURL: %s', event['ResponseURL'])
+              LOGGER.info('ResponseBody: %s', response_body)
+          
+              opener = build_opener(HTTPHandler)
+              request = Request(event['ResponseURL'], data=response_body)
+              request.add_header('Content-Type', '')
+              request.add_header('Content-Length', len(response_body))
+              request.get_method = lambda: 'PUT'
+              response = opener.open(request)
+              LOGGER.info("Status code: %s", response.getcode())
+              LOGGER.info("Status message: %s", response.msg)
+          
+          def handler(event, context):
+              '''Handle Lambda event from AWS'''
+              client = boto3.resource('s3')
+              destinationbucket = os.environ['destinationbucket']
+          
+              try:
+                  LOGGER.info('REQUEST RECEIVED:\n %s', event)
+                  LOGGER.info('REQUEST RECEIVED:\n %s', context)
+                  
+                  if event['RequestType'] == 'Create':
+                      LOGGER.info('CREATE!')
+                      send_response(event, context, "SUCCESS",
+                                    {"Message": "Resource creation successful!"})
+                  elif event['RequestType'] == 'Update':
+                      LOGGER.info('UPDATE!')
+                      send_response(event, context, "SUCCESS",
+                                    {"Message": "Resource update successful!"})
+                  elif event['RequestType'] == 'Delete':
+                      LOGGER.info('DELETE!')
+                      bucket = client.Bucket(destinationbucket)
+                      bucket.objects.all().delete()
+                      send_response(event, context, "SUCCESS",
+                                    {"Message": "Resource deletion successful!"})
+                  else:
+                      LOGGER.info('FAILED!')
+                      send_response(event, context, "FAILED",
+                                    {"Message": "Unexpected event received from CloudFormation"})
+              except (ClientError, AttributeError) as e:
+                print(e)
+                LOGGER.info('FAILED!')
+                send_response(event, context, "FAILED", {
+                      "Message": "Exception during processing"})
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action: 's3:*'
+            Resource: 
+              - !Join [ "", [ "arn:aws:s3:::", !Ref S3Bucket , "/*" ] ]
+              - !Join [ "", [ "arn:aws:s3:::",!Ref S3Bucket ] ]
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+
+  DeleteS3Files:
+    Type: Custom::DeleteS3Files
+    Properties:
+      ServiceToken: !GetAtt [CleanupFilesFunction, Arn]
 
 Outputs:
   SageMakerNotebookInstance:
