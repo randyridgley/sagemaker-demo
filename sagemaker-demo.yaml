@@ -1,6 +1,9 @@
 Description: " Creates resources (S3 Bucket, IAM roles, SageMaker Notebook instance) for the ML Workshop"
 Parameters:
-
+  PublicKey:
+    Type: String
+    Description: Create a new public key using ssh-keygen i.e. ssh-keygen -t rsa -b 4096 -C "your_email@example.com" paste public key in textbox
+    
   NotebookInstanceType:
     Type: "String"
     Default: ml.t2.medium
@@ -22,6 +25,30 @@ Parameters:
 Resources:
   S3Bucket:
     Type: AWS::S3::Bucket
+
+  # ssh-keygen -t rsa -b 4096 -C "your_email@example.com"  
+  GlueEndpoint:
+    Type: AWS::Glue::DevEndpoint
+    Properties:
+      PublicKey: !Ref PublicKey
+      RoleArn: !GetAtt GlueRole.Arn
+
+  GlueRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - glue.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
 
   SageMakerIamRole:
     Type: "AWS::IAM::Role"
@@ -62,6 +89,21 @@ Resources:
               - "athena:GetQueryExecution"
               - "athena:GetQueryResults"
             Resource: "*"
+          - Effect: "Allow"
+            Action:
+              - "logs:CreateLogStream"
+              - "logs:DescribeLogStreams"
+              - "logs:PutLogEvents"
+              - "logs:CreateLogGroup"
+            Resource:
+              - "arn:aws:logs:::log-group:/aws/sagemaker/*"
+              - "arn:aws:logs:::log-group:/aws/sagemaker/*:log-stream:aws-glue-*"
+          - Effect: "Allow"
+            Action:
+              - "glue:UpdateDevEndpoint"
+              - "glue:GetDevEndpoint"
+              - "glue:GetDevEndpoints"
+            Resource: '*'
       Roles: 
         - Ref: SageMakerIamRole
 
@@ -70,50 +112,94 @@ Resources:
     Properties:
       OnCreate:
         - Content:
-            Fn::Base64: 
-                Fn::Sub: |
-                  #!/bin/bash
-                  set -e
-                  sudo -i -u ec2-user bash << EOF
-                  echo "Setup the Workshop exercises"
-                  git clone https://github.com/randyridgley/sagemaker-demo.git ~/SageMaker/mlworkshop/
-                  
-                  cd ~/SageMaker/mlworkshop
-                  
-                  find -name '*.ipynb' -exec sed -i 's/<<SageMakerS3Bucket>>/${S3Bucket}/g' {} +
-                  find -name '*.ipynb' -exec sed -i 's/<<GlueDatabaseName>>/${TaxiDatabase}/g' {} +
-                  find -name '*.ipynb' -exec sed -i 's/<<Region>>/${AWS::Region}/g' {} +
-
-                  git clone https://github.com/mahendrabairagi/DeeplensWorkshop.git ~/SageMaker/deeplens/
-                  EOF
+            Fn::Base64: |
+                #!/bin/bash
+                set -e
+                echo "Starting Git Step"
+                cat > /home/ec2-user/git-setup.sh << EOF
+                #!/bin/bash
+                set -e
+                
+                source /home/ec2-user/anaconda3/bin/activate JupyterSystemEnv
+                conda install -y nodejs -c conda-forge
+                pip install --upgrade jupyterlab
+                git clone https://github.com/jupyterlab/jupyterlab-git.git
+                cd jupyterlab-git
+                jupyter labextension install .
+                pip install . && jupyter serverextension enable --py jupyterlab_git
+                
+                echo "Finished Git setup"
+                EOF
+                
+                chown ec2-user:ec2-user /home/ec2-user/git-setup.sh
+                chmod 755 /home/ec2-user/git-setup.sh
+                
+                sudo -i -u ec2-user bash /home/ec2-user/git-setup.sh
+                
+                ## Can cause to exceed the 5 mins limit
+                sudo reboot
       OnStart:
         - Content:
-            Fn::Base64: |
-              #!/bin/bash
-              set -e
+            Fn::Base64: 
+              Fn::Sub: |
+                #!/bin/bash
+                set -e
 
-              echo "Creating custom conda enviornment"
-              cat > /home/ec2-user/mlworkshop-setup.sh << EOF
-              #!/bin/bash
-              set -e
-              cd /home/ec2-user/SageMaker/mlworkshop
-              echo "Updating base conda enviornment"
-              conda update -n base conda -y
-              echo "Installing mlworkshop conda env"
-              conda env update
-              source activate mlworkshop
-              # echo "Installing AWS python libraries (sagemaker & boto3)"
-              # pip install sagemaker boto3 PyAthena
-              echo "Finished OnStart script"
-              EOF
+                echo "Creating custom conda enviornment"
+                cat > /home/ec2-user/mlworkshop-setup.sh << EOF
+                #!/bin/bash
+                set -e
+                cd /home/ec2-user/SageMaker/mlworkshop
+                echo "Updating base conda enviornment"
+                conda update -n base conda -y
+                echo "Installing mlworkshop conda env"
+                conda env update
+                source activate mlworkshop
+                # echo "Installing AWS python libraries (sagemaker & boto3)"
+                # pip install sagemaker boto3 PyAthena
+                echo "Finished OnStart script"
+                EOF
+                
+                mkdir /home/ec2-user/glue
+                cd /home/ec2-user/glue
+                DEV_ENDPOINT_NAME=test-vpc
+                aws s3 cp s3://aws-glue-jes-prod-us-west-2-assets/sagemaker/assets/ . --recursive
+                
+                tar -xf autossh-1.4e.tgz
+                cd autossh-1.4e
+                ./configure
+                make
+                sudo make install
+                pip install pandas==0.22.0
+                
+                mkdir -p /home/ec2-user/.sparkmagic
+                cp /home/ec2-user/glue/config.json /home/ec2-user/.sparkmagic/config.json
+                
+                # mkdir -p /home/ec2-user/SageMaker/Glue\ Examples
+                # mv /home/ec2-user/glue/notebook-samples/* /home/ec2-user/SageMaker/Glue\ Examples/
+                
+                sudo cp /home/ec2-user/glue/autossh.conf /etc/init/
+                python3 /home/ec2-user/glue/bootstrap.py --devendpointname ${GlueEndpoint} --endpoint https://glue.${AWS::Region}.amazonaws.com --notebookname ${NotebookPrefix}-MLWorkshopInstance
+                sudo touch /home/ec2-user/glue_ready
 
-              chown ec2-user:ec2-user /home/ec2-user/mlworkshop-setup.sh
-              chmod 755 /home/ec2-user/mlworkshop-setup.sh
+                sudo -i -u ec2-user bash << EOF
+                echo "Setup the Workshop exercises"
+                git clone https://github.com/randyridgley/sagemaker-demo.git ~/SageMaker/mlworkshop/
+                
+                cd ~/SageMaker/mlworkshop
+                
+                find -name '*.ipynb' -exec sed -i 's/<<SageMakerS3Bucket>>/${S3Bucket}/g' {} +
+                find -name '*.ipynb' -exec sed -i 's/<<GlueDatabaseName>>/${TaxiDatabase}/g' {} +
+                find -name '*.ipynb' -exec sed -i 's/<<Region>>/${AWS::Region}/g' {} +
 
-              sudo -i -u ec2-user bash << EOF
-              echo "Creating mlworkshop conda env in background process."
-              nohup /home/ec2-user/mlworkshop-setup.sh &
-              EOF
+                git clone https://github.com/mahendrabairagi/DeeplensWorkshop.git ~/SageMaker/deeplens/
+                chown ec2-user:ec2-user /home/ec2-user/mlworkshop-setup.sh
+                chmod 755 /home/ec2-user/mlworkshop-setup.sh
+
+                sudo -i -u ec2-user bash << EOF
+                echo "Creating mlworkshop conda env in background process."
+                nohup /home/ec2-user/mlworkshop-setup.sh &
+                EOF
 
   SageMakerNotebookInstance:
     Type: "AWS::SageMaker::NotebookInstance"
