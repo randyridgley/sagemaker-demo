@@ -1,0 +1,53 @@
+name: mlworkshop
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+- scipy
+- numpy
+- jinja2
+- jsonschema
+- jupyter
+- jupyter_client
+- jupyter_console
+- jupyter_core
+- conda-forge::jupyter_contrib_nbextensions  
+- matplotlib
+- openssl
+- pandas
+- pandocfilters
+- path.py
+- patsy
+- pcre
+- pexpect
+- pip
+- prompt_toolkit
+- python>=3.6.0
+- python-dateutil
+- pytz
+- pyzmq
+- seaborn
+- setuptools
+- simplegeneric
+- sip
+- six
+- wheel
+- widgetsnbextension
+- xz
+- pytest
+- pip:
+  - awscli
+  - boto3
+  - bson
+  - environment-kernels
+  - future
+  - py4j
+  - pyasn1
+  - pyathena
+  - pygal
+  - pyspark
+  - rsa
+  - sagemaker
+  - sagemaker-pyspark
+  - tables
+  - tenacity
